@@ -4,7 +4,7 @@ Require Import mathcomp.ssreflect.ssreflect.
 From mathcomp
 Require Import ssrfun ssrbool eqtype ssrnat seq div choice fintype path.
 From mathcomp
-Require Import bigop ssralg finset fingroup zmodp poly.
+Require Import bigop finfun ssralg finset fingroup zmodp poly.
 
 (******************************************************************************)
 (*                                                                            *)
@@ -4200,6 +4200,12 @@ Definition Im x := 'i * (x^* - x) / 2%:R.
 Notation "'Re z" := (Re z) (at level 10, z at level 8) : ring_scope.
 Notation "'Im z" := (Im z) (at level 10, z at level 8) : ring_scope.
 
+Definition lec x y :=
+    ('Re x < 'Re y) || (('Re x == 'Re y) && ('Im x <= 'Im y)).
+Definition ltc x y := (lec x y) && (x != y).
+Notation "x <=%C y" := (lec x y) (at level 35) : ring_scope.
+Notation "x <%C y" := (ltc x y) (at level 35) : ring_scope.
+
 Let nz2 : 2%:R != 0 :> C. Proof. by rewrite pnatr_eq0. Qed.
 
 Lemma normCKC x : `|x| ^+ 2 = x^* * x. Proof. by rewrite normCK mulrC. Qed.
@@ -4786,6 +4792,411 @@ Lemma normC_sub_eq x y :
 Proof.
 rewrite -{-1}(subrK y x) => /(canLR (subrK _))/esym-Dx; rewrite Dx.
 by have [t ? [Dxy Dy]] := normC_add_eq Dx; exists t; rewrite // mulrDl -Dxy -Dy.
+Qed.
+
+(* Total order on num closed fields *)
+Lemma lecE x y :
+  (x <=%C y) = ('Re x < 'Re y) || (('Re x == 'Re y) && ('Im x <= 'Im y)).
+Proof. by rewrite /lec. Qed.
+
+Lemma ltcE x y :
+  (x <%C y) = (x <=%C y) && (x != y).
+Proof. by rewrite /ltc. Qed.
+
+Lemma lecc : reflexive lec.
+Proof. by move=> x; rewrite lecE eq_refl lerr andbT orbT. Qed.
+Hint Resolve lecc.
+
+Lemma lec_trans : transitive lec.
+Proof.
+move=> x y z; rewrite !lecE => /orP[Ryx | /andP[/eqP <- Iyx]].
+  move=> /orP[Rxz | /andP[/eqP <- _]].
+    by apply/orP; left; apply: (ltr_trans Ryx Rxz).
+  by rewrite Ryx.
+move=> /orP[Ryz | /andP[/eqP <- Ixz]].
+  by rewrite Ryz.
+by rewrite eq_refl (ler_trans Iyx Ixz) andbT orbT.
+Qed.
+
+Lemma lec_asym : antisymmetric lec.
+Proof.
+move=> x y /andP[]; rewrite !lecE => /orP[Rxy | /andP[/eqP Rxy Ixy /=]].
+  move=> /orP[ | /andP[]].
+    by rewrite ltr_gtF.
+  by rewrite (gtr_eqF Rxy).
+move=> /orP[ | /andP[/eqP Ryx Iyx]].
+  by rewrite Rxy ltrr.
+rewrite [x]Crect [y]Crect Rxy.
+by move: Iyx; rewrite ler_eqVlt (ler_gtF Ixy) orbF => /eqP ->.
+Qed.
+
+Lemma ltc_neqAle x y :
+  (x <%C y) = (x != y) && (x <=%C y).
+Proof. by rewrite ltcE andbC. Qed.
+
+Lemma lec_eqVlt x y :
+  (x <=%C y) = (x == y) || (x <%C y).
+Proof.
+rewrite ltc_neqAle.
+by case: (boolP (x == y)) => [/eqP -> | _ //=]; rewrite orTb lecc.
+Qed.
+
+Lemma ltcNge x y : x <%C y = ~~ (y <=%C x).
+Proof.
+rewrite ltcE lecE negb_or negb_and.
+case: (boolP (x == y)) => [/eqP -> | ]; first by rewrite eq_refl lerr /= !andbF.
+move=> x_neqy; rewrite /= andbT.
+rewrite -?real_ltrNge -?real_lerNgt ?Creal_Re ?Creal_Im ?ler_eqVlt //.
+have x_rect := (Crect x); have y_rect := (Crect y).
+have [ | | eq_Re] //= := (real_ltrgtP (Creal_Re x) (Creal_Re y)).
+have [ | | eq_Im] //= := (real_ltrgtP (Creal_Im x) (Creal_Im y)).
+by move: x_neqy; rewrite x_rect y_rect eq_Re eq_Im eq_refl.
+Qed.
+
+Lemma lecNgt x y : x <=%C y = ~~ (y <%C x).
+Proof. by rewrite ltcNge negbK. Qed.
+
+Lemma ltcc x : x <%C x = false.
+Proof. by rewrite ltcE eq_refl /= andbF. Qed.
+
+Lemma ltc_trans : transitive ltc.
+Proof.
+move=> y x z; rewrite ltc_neqAle => /andP [_ le_xy].
+rewrite !ltcNge => /negP le_zy; apply/negP => le_zx.
+by apply: le_zy; apply: (lec_trans le_zx le_xy).
+Qed.
+
+Lemma neq_ltc x y :
+  (x != y) = (x <%C y) || (y <%C x).
+Proof.
+rewrite !ltcNge -negb_and; congr (~~ _).
+apply/idP/idP => [/eqP -> | H_anti]; first by rewrite andbb.
+by rewrite eq_sym; apply/eqP; apply: lec_asym.
+Qed.
+
+Lemma eqc_le x y : (x == y) = (x <=%C y && y <=%C x).
+Proof. by apply/eqP/idP=> [->|/lec_asym]; rewrite ?lecc. Qed.
+
+Lemma lec_total : total lec.
+Proof. by move=> x y; rewrite lec_eqVlt ltcNge -orbA orNb orbT. Qed.
+
+Lemma ltc_le_trans y x z : x <%C y -> y <=%C z -> x <%C z.
+Proof.
+by move=> lt_xy; rewrite lec_eqVlt => /orP [/eqP <- // | ]; apply: ltc_trans.
+Qed.
+
+Lemma lec_lt_trans y x z : x <=%C y -> y <%C z -> x <%C z.
+Proof. by rewrite lec_eqVlt => /orP [/eqP <- // | ]; apply: ltc_trans. Qed.
+
+Lemma ltc_eqF x y : x <%C y -> (x == y) = false.
+Proof. by rewrite ltcE => /andP[ _ ] /negbTE. Qed.
+
+Lemma ltcW x y : x <%C y -> x <=%C y.
+Proof. by rewrite ltcE => /andP[-> _]. Qed.
+
+Variant comparec x y : bool -> bool -> bool -> bool -> bool -> bool -> Set:=
+| ComparecLt : x <%C y -> comparec x y false false true false true false
+| ComparecGt : y <%C x -> comparec x y false false false true false true
+| ComparecEq : x = y -> comparec x y true true true true false false.
+
+Variant ltc_xor_ge x y : bool -> bool -> Set :=
+| LtcNotGe : x <%C y -> ltc_xor_ge x y false true
+| GecNotLt : y <=%C x -> ltc_xor_ge x y true false.
+
+Variant lec_xor_gt x y : bool -> bool -> Set :=
+| LecNotGt : x <=%C y -> lec_xor_gt x y true false
+| GtcNotLe : y <%C x -> lec_xor_gt x y false true.
+
+Lemma ltcgtP x y :
+  comparec x y (x == y) (y == x) (x <=%C y) (y <=%C x) (x <%C y) (y <%C x).
+Proof.
+case: (boolP (_ <%C _)) => [ltxy | nltxy].
+  have H := (ltc_eqF ltxy); rewrite H; move: H; rewrite eq_sym => ->.
+  rewrite ltcE; have := ltxy; rewrite ltcNge => /negbTE -> /=.
+  by rewrite (ltcW ltxy); constructor.
+rewrite lec_eqVlt (negbTE nltxy).
+move: nltxy; rewrite -lecNgt => lexy; rewrite ltcE lexy orbF /=.
+case: (boolP (_ == _)) => [/eqP eq_xy|].
+  by rewrite eq_xy eq_refl /=; constructor.
+rewrite eq_sym => neq_xy; rewrite (negbTE neq_xy) /=.
+by constructor; rewrite ltcE lexy neq_xy.
+Qed.
+
+Lemma lecP x y : lec_xor_gt x y (x <=%C y) (y <%C x).
+Proof. by case: ltcgtP => [/ltcW lexy | ltyx | ->]; constructor=> //. Qed.
+
+Lemma ltcP x y : ltc_xor_ge x y (y <=%C x) (x <%C y).
+Proof. by case: ltcgtP => [/ltcW lexy | ltyx | ->]; constructor=> //. Qed.
+
+
+(* Monotony of addition *)
+Lemma lec_add2l x : {mono +%R x : y z / y <=%C z}.
+Proof.
+move=> y z; rewrite lecE !raddfD /= ltr_add2l ler_add2l.
+by rewrite -subr_eq0 opprD addrAC addNKr addrC subr_eq0.
+Qed.
+
+Lemma lec_add2r x : {mono +%R^~ x : y z / y <=%C z}.
+Proof. by move=> y z /=; rewrite ![_ + x]addrC lec_add2l. Qed.
+
+Lemma mono_injc f : {mono f : x y / x <=%C y} -> injective f.
+Proof. by move=> mf x y /eqP; rewrite eqc_le !mf -eqc_le => /eqP. Qed.
+
+Lemma lecW_mono f : {mono f : x y / x <=%C y} -> {mono f : x y / x <%C y}.
+Proof. by move=> mf x y; rewrite !ltc_neqAle mf (inj_eq (mono_injc mf)). Qed.
+
+Lemma lecW_mono_to (T : eqType) (f : C -> T) (g : rel T) :
+  injective f ->
+  {mono f : x y / x <=%C y >-> g x y} ->
+  {mono f : x y / x <%C y >-> (x != y) && g x y}.
+Proof. by move=> inj_f mf x y /=; rewrite ltc_neqAle mf (inj_eq inj_f). Qed.
+
+Lemma ltc_add2r z x y : (x + z) <%C (y + z) = x <%C y.
+Proof. by rewrite (lecW_mono (lec_add2r _)). Qed.
+
+Lemma ltc_add2l z x y : (z + x) <%C (z + y) = x <%C y.
+Proof. by rewrite (lecW_mono (lec_add2l _)). Qed.
+
+Lemma lec_add x y z t : x <=%C y -> z <=%C t -> (x + z) <=%C (y + t).
+Proof.
+by move=> lxy lzt; rewrite (@lec_trans (y + z)) ?lec_add2l ?lec_add2r.
+Qed.
+
+Lemma ltc_add x y z t : x <%C y -> z <%C t -> (x + z) <%C (y + t).
+Proof.
+by move=> lxy lzt; rewrite (@ltc_trans (y + z)) ?ltc_add2l ?ltc_add2r.
+Qed.
+
+Lemma lec_sum (I : Type) (r : seq I) (P : pred I) (F G : I -> C) :
+  (forall i : I, P i -> (F i) <=%C (G i)) ->
+  (\sum_(i <- r | P i) F i) <=%C (\sum_(i <- r | P i) G i).
+Proof. by exact: (big_ind2 _ (lecc _) lec_add). Qed.
+
+Lemma ltc_sum (I : Type) (r : seq I) (F G : I -> C) :
+  (0 < size r)%N -> (forall i : I, (F i) <%C (G i)) ->
+  (\sum_(i <- r) F i) <%C (\sum_(i <- r) G i).
+Proof.
+case: r => [// | x r _ Hi]; rewrite big_cons big_cons.
+apply: (@ltc_le_trans (G x + \sum_(j <- r) F j)); first by rewrite ltc_add2r.
+by rewrite lec_add2l; apply: lec_sum => i _; rewrite lec_eqVlt Hi orbT.
+Qed.
+
+(* lec_iff *)
+Definition lecif x y (b : bool) : Prop :=
+    ((x <=%C y) * ((x == y) = b))%type.
+
+Definition lec_of_leif x y b (le_xy : lecif x y b) := le_xy.1 : x <=%C y.
+Coercion lec_of_leif : lecif >-> is_true.
+
+Lemma lecifP x y b : reflect (lecif x y b) (if b then x == y else x <%C y).
+Proof.
+rewrite /lecif lec_eqVlt; apply: (iffP idP)=> [|[]].
+  by case: b => [/eqP->|lxy]; rewrite ?eqxx // lxy ltc_eqF.
+by move=> /orP[/eqP->|lxy] <-; rewrite ?eqxx // ltc_eqF.
+Qed.
+
+Lemma lecif_refl x b : reflect (lecif x x b) b.
+Proof. by apply: (iffP idP) => [-> | <-] //; split; rewrite ?eqxx. Qed.
+
+Lemma lecif_trans x1 x2 x3 b b' :
+  lecif x1 x2 b -> lecif x2 x3 b' -> lecif x1 x3 (b && b').
+Proof.
+move=> ltx12 ltx23; apply/lecifP; rewrite -ltx12.
+case eqx12: (x1 == x2).
+  by rewrite (eqP eqx12) ltc_neqAle !ltx23 andbT; case b'.
+by rewrite (@ltc_le_trans x2) ?ltx23 // ltc_neqAle eqx12 ltx12.
+Qed.
+
+Lemma lecif_le x y : x <=%C y -> lecif x y (y <=%C x).
+Proof. by move=> lexy; split=> //; rewrite eqc_le lexy. Qed.
+
+Lemma lecif_eq x y : x <=%C y -> lecif x y (x == y).
+Proof. by []. Qed.
+
+Lemma gec_lecif x y b : lecif x y b -> y <=%C x = b.
+Proof. by case=> le_xy; rewrite eqc_le le_xy. Qed.
+
+Lemma ltc_lecif x y b : lecif x y b -> (x <%C y) = ~~ b.
+Proof. by move=> le_xy; rewrite ltc_neqAle !le_xy andbT. Qed.
+
+Lemma mono_lecif (f : C -> C) b :
+    {mono f : x y / x <=%C y} ->
+  forall x y, (lecif (f x) (f y) b) = (lecif x y b).
+Proof. by move=> mf x y; rewrite /lecif mf (inj_eq (mono_injc _)). Qed.
+
+Lemma lecif_add x1 y1 b x2 y2 b' :
+    lecif x1 y1 b -> lecif x2 y2 b' ->
+  lecif (x1 + x2) (y1 + y2) (b && b').
+Proof.
+rewrite -(mono_lecif _ (lec_add2r x2)) -(mono_lecif b' (lec_add2l y1)).
+exact: lecif_trans.
+Qed.
+
+Lemma lecif_sum (I : finType) (P P' : pred I) (E1 E2 : I -> C) :
+    (forall i, P i -> lecif (E1 i) (E2 i) (P' i)) ->
+  lecif (\sum_(i | P i) E1 i) (\sum_(i | P i) E2 i) [forall (i | P i), P' i].
+Proof.
+move=> leE12; rewrite -big_andE.
+elim/big_rec3: _ => [|i P'i m2 m1 /leE12]; first by rewrite /lecif lecc eqxx.
+exact: lecif_add.
+Qed.
+
+
+(* max *)
+Definition maxc x y := if (x <=%C y) then y else x.
+
+Variant maxc_spec x y : bool -> bool -> C -> Set :=
+| Maxc_l of x <=%C y : maxc_spec x y true false y
+| Maxc_r of y <%C x : maxc_spec x y false true x.
+
+Lemma maxcP x y : maxc_spec x y (x <=%C y) (y <%C x) (maxc x y).
+Proof. by rewrite /maxc; case: lecP => H; constructor. Qed.
+
+Lemma maxcA : associative maxc.
+Proof.
+move=> a b c; case: (maxcP b c); case: (maxcP a b) => //.
+- by move=> leab lebc; rewrite /maxc (lec_trans leab lebc) lebc.
+- by case: maxcP.
+- by move=> ltba ltcb; rewrite /maxc lecNgt (ltc_trans ltcb ltba).
+Qed.
+
+Lemma maxc_addl : left_distributive +%R maxc.
+Proof. by move=> x y z; rewrite /maxc /= lec_add2r; case: ifP => _. Qed.
+
+Lemma maxc_addr : right_distributive +%R maxc.
+Proof. by move=> x y z; rewrite ![x + _]addrC maxc_addl. Qed.
+
+Lemma maxcc x : maxc x x = x.
+Proof. by rewrite /maxc lecc. Qed.
+
+Lemma maxcC : commutative maxc.
+Proof. by move=> x y; rewrite /maxc; case: (ltcgtP x y). Qed.
+
+Lemma maxcl x y : x <=%C (maxc x y).
+Proof. by case: maxcP. Qed.
+
+Lemma maxcr x y : y <=%C (maxc x y).
+Proof. by case: maxcP=> // /ltcW. Qed.
+
+(* max of a non empty list *)
+Definition bigmaxc x0 lc :=
+  foldr maxc (head x0 lc) (behead lc).
+
+Lemma bigmaxc_nil x0 : bigmaxc x0 [::] = x0.
+Proof. by rewrite /bigmaxc. Qed.
+
+Lemma bigmaxc_un x0 x :
+  bigmaxc x0 [:: x] = x.
+Proof. by rewrite /bigmaxc. Qed.
+
+Lemma bigmaxc_cons x0 x y lc :
+  bigmaxc x0 (x :: y :: lc) = maxc x (bigmaxc x0 (y :: lc)).
+Proof.
+rewrite /bigmaxc /=; elim: lc => [/= | a lc /=]; first by rewrite maxcC.
+set b := foldr _ _ _; set c := foldr _ _ _ => H.
+by rewrite [maxc a b]maxcC maxcA H -maxcA (maxcC c a).
+Qed.
+
+Lemma bigmaxc_lec x0 lc i :
+  (i < size lc)%N -> lec (nth x0 lc i) (bigmaxc x0 lc).
+Proof.
+case: lc i => [i | x lc]; first by rewrite nth_nil bigmaxc_nil lecc.
+elim: lc x => [x i /= | x lc /= ihlc y i i_size].
+  by rewrite ltnS leqn0 => /eqP ->; rewrite nth0 bigmaxc_un /=.
+rewrite bigmaxc_cons /=; case: i i_size => [_ /= | i]; first by rewrite maxcl.
+rewrite ltnS /=; move/(ihlc x); move/(lec_trans)=> H; apply: H.
+by rewrite maxcr.
+Qed.
+
+(* Compatibility with addition *)
+Lemma bigmaxc_addr x0 lc x :
+  bigmaxc (x0 + x) (map (fun y => y + x) lc) = (bigmaxc x0 lc) + x.
+Proof.
+case: lc => [/= | y lc]; first by rewrite bigmaxc_nil.
+elim: lc y => [y | y lc ihlc z]; first by rewrite /= !bigmaxc_un.
+by rewrite map_cons !bigmaxc_cons ihlc maxc_addl.
+Qed.
+
+Lemma bigmaxc_index x0 lc :
+  (0 < size lc)%N -> (index (bigmaxc x0 lc) lc < size lc)%N.
+Proof.
+case: lc => [//= | x l _].
+elim: l x => [x | x lc]; first by rewrite bigmaxc_un /= eq_refl.
+move/(_ x); set z := bigmaxc _ _ => /= ihl y; rewrite bigmaxc_cons /maxc -/z.
+case: (lec y z); last by rewrite eq_refl.
+by case: (y == z); rewrite //.
+Qed.
+
+Lemma bigmaxc_mem x0 lc :
+  (0 < size lc)%N -> bigmaxc x0 lc \in lc.
+Proof. by move/(bigmaxc_index x0); rewrite index_mem. Qed.
+
+Lemma bigmaxc_lecP x0 lc x :
+  (0 < size lc)%N -> reflect 
+     (forall i, (i < size lc)%N -> lec (nth x0 lc i) x) (lec (bigmaxc x0 lc) x).
+Proof.
+move=> lc_size; apply: (iffP idP) => [le_x i i_size | H].
+  by apply: (lec_trans _ le_x); apply: bigmaxc_lec.
+by move/(nthP x0): (bigmaxc_mem x0 lc_size) => [i i_size <-]; apply: H.
+Qed.
+
+Lemma bigmaxcP x0 lc x :
+  (x \in lc /\ forall i, (i < size lc) %N -> lec (nth x0 lc i) x) -> 
+     (bigmaxc x0 lc = x).
+Proof.
+move=>[] /(nthP x0) [] j j_size j_nth x_lec; apply: lec_asym; apply/andP; split.
+  by apply/bigmaxc_lecP => //; apply: (leq_trans _ j_size).
+by rewrite -j_nth (bigmaxc_lec _ j_size).
+Qed.
+
+Lemma bigmaxc_lecif x0 lc :
+  uniq lc -> forall i, (i < size lc)%N ->
+     lecif (nth x0 lc i) (bigmaxc x0 lc) (i == index (bigmaxc x0 lc) lc).
+Proof.
+move=> lc_uniq i i_size; rewrite /lecif (bigmaxc_lec _ i_size).
+rewrite -(nth_uniq x0 i_size (bigmaxc_index _ (leq_trans _ i_size)) lc_uniq) //.
+rewrite nth_index //.
+by apply: bigmaxc_mem; apply: (leq_trans _ i_size).
+Qed.
+
+(* max for non-empty list (ffun I_n+1) *)
+Definition bmaxf n (f : {ffun 'I_n.+1 -> C}) :=
+  bigmaxc (f ord0) (codom f).
+
+Lemma bmaxf_lec n (f : {ffun 'I_n.+1 -> C}) i :
+  lec (f i) (bmaxf f).
+Proof.
+move: (@bigmaxc_lec (f ord0) (codom f) (nat_of_ord i)).
+rewrite /bmaxf size_codom card_ord => H; move: (ltn_ord i); move/H.
+suff -> : nth (f ord0) (codom f) i = f i; first by [].
+by rewrite /codom (nth_map ord0) ?size_enum_ord // nth_ord_enum.
+Qed.
+
+Lemma bmaxf_index n (f : {ffun 'I_n.+1 -> C}) :
+  (index (bmaxf f) (codom f) < n.+1)%N.
+Proof.
+rewrite /bmaxf.
+have {6}-> : n.+1 = size (codom f) by rewrite size_codom card_ord.
+by apply: bigmaxc_index; rewrite size_codom card_ord.
+Qed.
+
+Definition index_bmaxf n f := Ordinal (@bmaxf_index n f).
+
+Lemma eq_index_bmaxf n (f : {ffun 'I_n.+1 -> C}) :
+  f (index_bmaxf f) = bmaxf f.
+Proof.
+move: (bmaxf_index f).
+rewrite -{3}[n.+1]card_ord -(size_codom f) index_mem.
+move/(nth_index (f ord0)) => <-; rewrite (nth_map ord0).
+  by rewrite -[(index _ _)]/(nat_of_ord (index_bmaxf _)) nth_ord_enum.
+by rewrite size_enum_ord; apply: bmaxf_index.
+Qed.
+
+Lemma bmaxf_lecif n (f : {ffun 'I_n.+1 -> C}) :
+  injective f -> forall i,
+     lecif (f i) (bmaxf f) (i == index_bmaxf f).
+Proof.
+by move=> inj_f i; rewrite /lecif bmaxf_lec -(inj_eq inj_f) eq_index_bmaxf.
 Qed.
 
 End ClosedFieldTheory.
